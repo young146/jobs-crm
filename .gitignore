@@ -1,0 +1,7 @@
+serviceAccount.json
+.env.local
+.env*.local
+node_modules/
+.next/
+out/
+*.pem
