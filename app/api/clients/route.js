@@ -1,6 +1,8 @@
 import { getDb } from "@/lib/firebase-admin";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/clients — 전체 고객 목록
 export async function GET() {
   try {

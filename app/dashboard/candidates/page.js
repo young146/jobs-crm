@@ -1,6 +1,8 @@
 import { getDb } from "@/lib/firebase-admin";
 import CandidatesClient from "@/components/CandidatesClient";
 
+export const dynamic = "force-dynamic";
+
 // Firestore Timestamp / 중첩 객체 → 순수 JSON 직렬화
 function serializeDoc(data) {
   if (!data || typeof data !== "object") return data;

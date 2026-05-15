@@ -1,6 +1,8 @@
 import { getDb } from "@/lib/firebase-admin";
 import JobsClient from "@/components/JobsClient";
 
+export const dynamic = "force-dynamic";
+
 function serializeDoc(data) {
   if (!data || typeof data !== "object") return data;
   if (Array.isArray(data)) return data.map(serializeDoc);

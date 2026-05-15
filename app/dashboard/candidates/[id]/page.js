@@ -3,6 +3,8 @@ import Link from "next/link";
 import AIAnalysisButton from "@/components/AIAnalysisButton";
 import { notFound } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 async function getCandidate(id) {
   const db = getDb();
   const doc = await db.collection("candidates").doc(id).get();

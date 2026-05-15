@@ -1,5 +1,7 @@
 import { getDb } from "@/lib/firebase-admin";
 
+export const dynamic = "force-dynamic";
+
 async function getStats() {
   const db = getDb();
   const [candidatesSnap, jobsSnap] = await Promise.all([
