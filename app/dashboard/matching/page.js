@@ -10,6 +10,12 @@ export default function MatchingPage() {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState("");
   const [ran, setRan] = useState(false);
+  // 기업에 추천 인재 보내기
+  const [showSend, setShowSend] = useState(false);
+  const [companyEmail, setCompanyEmail] = useState("");
+  const [sendSel, setSendSel] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState("");
 
   async function loadData() {
     setLoading(true);
@@ -55,6 +61,47 @@ export default function MatchingPage() {
     } finally {
       setLoading(false);
       setRan(true);
+    }
+  }
+
+  async function openSend() {
+    setSendMsg("");
+    setSendSel(matches.map(m => m.candidateId));
+    // 공고 회사명 ↔ 등록된 기업(clients)에서 담당자 이메일 자동 조회
+    let email = "";
+    try {
+      const cs = await fetch("/api/clients").then(r => r.json());
+      const name = (selectedJob?.companyName || "").trim();
+      const hit = (cs.clients || []).find(c => (c.companyName || "").trim() === name && c.contactEmail);
+      email = hit?.contactEmail || "";
+    } catch { /* 자동조회 실패 시 수동 입력 */ }
+    setCompanyEmail(email);
+    setShowSend(true);
+  }
+
+  async function sendToCompany() {
+    if (!companyEmail) { setSendMsg("기업 이메일을 입력하세요."); return; }
+    const picked = matches.filter(m => sendSel.includes(m.candidateId));
+    if (picked.length === 0) { setSendMsg("보낼 인재를 1명 이상 선택하세요."); return; }
+    setSending(true); setSendMsg("");
+    try {
+      const res = await fetch("/api/matching/send-to-company", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          companyEmail,
+          companyName: selectedJob.companyName || "",
+          matches: picked,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) setSendMsg(`발송 실패: ${data.error}`);
+      else { setSendMsg(`✅ ${data.sentTo} 로 ${data.count}명 발송 완료`); setTimeout(() => setShowSend(false), 1600); }
+    } catch (e) {
+      setSendMsg(`네트워크 오류: ${e.message}`);
+    } finally {
+      setSending(false);
     }
   }
 
@@ -194,7 +241,11 @@ export default function MatchingPage() {
                 <div className="card">
                   <div className="card-title">
                     🏆 매칭 결과 — <span style={{ color: "var(--text)", fontWeight: 500 }}>{selectedJob?.title}</span>
-                    <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>
+                    <button className="btn btn-primary btn-sm" onClick={openSend}
+                      style={{ marginLeft: "auto", whiteSpace: "nowrap" }}>
+                      📤 기업에 보내기
+                    </button>
+                    <span style={{ marginLeft: 10, fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>
                       Top {matches.length}명
                     </span>
                   </div>
@@ -232,6 +283,47 @@ export default function MatchingPage() {
           </div>
         )}
       </div>
+
+      {/* 기업에 추천 인재 보내기 모달 */}
+      {showSend && (
+        <div onClick={() => !sending && setShowSend(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card"
+            style={{ width: 480, maxWidth: "100%", maxHeight: "85vh", overflowY: "auto" }}>
+            <div className="card-title">📤 기업에 추천 인재 보내기</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+              공고: <strong style={{ color: "var(--text)" }}>{selectedJob?.title}</strong>
+              {selectedJob?.companyName ? ` · ${selectedJob.companyName}` : ""}
+            </div>
+
+            <label style={{ fontSize: 12, color: "var(--muted)" }}>기업 담당자 이메일</label>
+            <input value={companyEmail} onChange={e => setCompanyEmail(e.target.value)} placeholder="contact@company.com"
+              style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", margin: "5px 0 14px", boxSizing: "border-box" }} />
+
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>보낼 인재 ({sendSel.length}명 선택)</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+              {matches.map(m => (
+                <label key={m.candidateId} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={sendSel.includes(m.candidateId)}
+                    onChange={e => setSendSel(s => e.target.checked ? [...s, m.candidateId] : s.filter(x => x !== m.candidateId))} />
+                  <span style={{ fontWeight: 600 }}>{m.name}</span>
+                  <span className="badge badge-accent" style={{ fontSize: 11 }}>{m.score}%</span>
+                </label>
+              ))}
+            </div>
+
+            {sendMsg && (
+              <div style={{ fontSize: 13, marginBottom: 12, color: sendMsg.startsWith("✅") ? "var(--green)" : "var(--red)" }}>{sendMsg}</div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn btn-secondary" onClick={() => setShowSend(false)} disabled={sending}>취소</button>
+              <button className="btn btn-primary" onClick={sendToCompany} disabled={sending}>
+                {sending ? "발송 중..." : "✅ 승인하고 발송"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
