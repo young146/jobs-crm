@@ -67,6 +67,19 @@ export default function ClientsPage() {
     finally { setSaving(false); }
   }
 
+  async function importFromJobs() {
+    if (!confirm("등록된 공고의 기업들을 영업 파이프라인으로 가져옵니다. (이미 있는 회사는 건너뜀)")) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/clients/import-from-jobs", { method: "POST" });
+      const data = await res.json();
+      if (data.ok) showToast(`✅ ${data.created}개 기업 가져옴 (기존 ${data.skippedExisting}개 제외)`);
+      else showToast("❌ " + data.error);
+      loadClients();
+    } catch (e) { showToast("❌ " + e.message); }
+    finally { setSaving(false); }
+  }
+
   async function handleDelete(id) {
     if (!confirm("이 고객사를 삭제하시겠습니까?")) return;
     await fetch(`/api/clients/${id}`, { method: "DELETE" });
@@ -109,6 +122,9 @@ export default function ClientsPage() {
           <span className="topbar-badge">{clients.length}개 고객사</span>
           <button className={`btn btn-secondary btn-sm ${view === "kanban" ? "active" : ""}`} onClick={() => setView("kanban")}>칸반</button>
           <button className={`btn btn-secondary btn-sm ${view === "list" ? "active" : ""}`} onClick={() => setView("list")}>리스트</button>
+          <button className="btn btn-secondary btn-sm" disabled={saving} onClick={importFromJobs}>
+            📥 공고 기업 가져오기
+          </button>
           <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(true); setEditId(null); setForm(EMPTY_FORM); }}>
             + 고객사 추가
           </button>
