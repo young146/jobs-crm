@@ -35,6 +35,11 @@ export async function GET(request) {
         send: (to, subject, html) => sendEmail({ to, subject, html }),
         serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
         templates: { jobIncompleteEmail, candidateIncompleteEmail, matchResultEmail },
+        // 모든 발송을 emailLog에 기록 (관제 대시보드용). 응답상태 기본 '대기'
+        logEmail: (e) => db.collection("emailLog").add({
+          ...e, status: "sent", responseStatus: "대기", responseAt: null,
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        }),
       },
       { startAtMs, threshold: cfg.threshold || 75, dryRun: !!cfg.dryRun, jobLimit: cfg.jobLimit || 100 }
     );

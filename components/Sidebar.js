@@ -9,6 +9,7 @@ const nav = [
   { href: "/dashboard/candidates", icon: "👤", label: "구직자 관리" },
   { href: "/dashboard/jobs", icon: "🏢", label: "채용공고" },
   { href: "/dashboard/matching", icon: "🤖", label: "AI 매칭" },
+  { href: "/dashboard/automation", icon: "⚙️", label: "자동화 관제" },
   { section: "영업 관리" },
   { href: "/dashboard/clients", icon: "🤝", label: "기업 고객 파이프라인" },
   { href: "/dashboard/promo", icon: "📣", label: "홍보 카드" },
