@@ -67,6 +67,37 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const candTracks = (c) => (c.career || {}).jobTracks || (c.career || {}).desiredJobTracks || [];
 const candLoc = (c) => ((c.profile || {}).desiredLocation || (c.profile || {}).jobDesiredLocationText || "").trim();
 const candPhone = (c) => { const p = c.profile || {}; return (p.phone || p.contactPhone || p.mobile || "").replace(/[^0-9]/g, ""); };
+const candEmail = (c) => { const p = c.profile || {}; return p.email || p.contactEmail || ""; };
+const jobEmail = (j) => j.contactEmail || j.email || j.userEmail || "";
+
+// ── "제대로 등록" 기준 — 미충족 항목 목록 반환 (빈 배열 = 완전 등록) ──
+function nameLooksBad(name) {
+  const n = String(name || "").trim();
+  if (!n) return true;
+  if (VN_REGION[n]) return true;        // 이름 칸에 지역명이 들어간 오염 데이터
+  if (!/\p{L}/u.test(n)) return true;    // 글자(어떤 언어든)가 하나도 없음 = 숫자/기호만
+  return false;
+}
+function candMissing(c) {
+  const p = c.profile || {}, ca = c.career || {};
+  const miss = [];
+  if (nameLooksBad(p.name)) miss.push("이름");
+  if (!candTracks(c).length) miss.push("희망직종");
+  if (!candLoc(c)) miss.push("희망지역");
+  if (ca.experienceYears == null) miss.push("경력");
+  if (!candEmail(c) && !candPhone(c)) miss.push("연락처");
+  return miss;
+}
+function jobMissing(j) {
+  const miss = [];
+  if (!String(j.companyName || "").trim()) miss.push("회사명");
+  if (!String(j.title || "").trim()) miss.push("제목");
+  if (!String(j.city || "").trim()) miss.push("지역");
+  if (!(Array.isArray(j.jobTracks) && j.jobTracks.length)) miss.push("직무");
+  if (!/.+@.+\..+/.test(jobEmail(j))) miss.push("이메일");
+  if (((j.description || "") + (j.requirements || "")).trim().length < 10) miss.push("업무내용");
+  return miss;
+}
 
 // ── 0) 중복 제거: 전화(숫자) 같으면 동일인. 전화 없으면 이름+국적 ──
 function dedupe(cands) {
@@ -129,6 +160,7 @@ function buildPrompt(job, pool) {
 1. 공고의 '포지션 제목'과 '업무내용'을 구체적으로 보고 판단하라. 단순히 직종 카테고리가 같다는 이유로 높은 점수를 주지 말 것.
 2. 지역: 후보 희망지역이 '무관/전지역/미기재'면 지역 감점 없음. 그렇지 않은데 공고와 다른 권역(북부/중부/남부)이면 60점을 넘기지 말 것.
 3. 이유는 그 후보만의 구체적 강점/약점을 공고와 연결해 1문장으로. 모든 후보에 똑같은 문구를 쓰지 말 것.
+4. 후보의 실제 경력·기술·언어가 공고 직무와 맞지 않으면, 지역이 '무관'이어도 75점을 넘기지 마라. '관심/열정/적응 가능성' 같은 추측은 점수 근거로 쓰지 말고, 검증된 이력(경력연수·직무·기술·한국어)만으로 평가하라.
 점수: 90+ 매우적합 / 75~89 적합 / 60~74 보통 / 60미만 부적합
 
 [채용공고]
@@ -162,23 +194,41 @@ async function rankWithAI(job, pool) {
   console.log(`\n===== AI 매칭 DRY-RUN (공고 ${NUM_JOBS}건 · 임계 ${THRESHOLD}점 · 발송 안 함) =====`);
 
   const candSnap = await db.collection("candidates").get();
-  const rawCands = candSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const candidates = dedupe(rawCands);
-  console.log(`구직자: ${rawCands.length}명 → 중복제거 후 ${candidates.length}명\n`);
+  const candidates = dedupe(candSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-  const jobSnap = await db.collection("Jobs").orderBy("createdAt", "desc").limit(NUM_JOBS * 12).get();
-  const jobDocs = jobSnap.docs
-    .filter((d) => { const j = d.data(); return (!j.jobType || j.jobType === "구인") && j.status === "모집중"; })
-    .slice(0, NUM_JOBS);
+  const jobSnap = await db.collection("Jobs").orderBy("createdAt", "desc").limit(300).get();
+  const activeJobs = jobSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((j) => (!j.jobType || j.jobType === "구인") && j.status === "모집중");
 
-  for (const jd of jobDocs) {
-    const job = jd.data();
+  // ── 등록 완전성 분류 ──
+  const cOK = [], cBad = [];
+  for (const c of candidates) { const m = candMissing(c); (m.length ? cBad : cOK).push({ c, m }); }
+  const jOK = [], jBad = [];
+  for (const j of activeJobs) { const m = jobMissing(j); (m.length ? jBad : jOK).push({ j, m }); }
+
+  console.log("===== 등록 완전성 현황 (중복제거 후) =====");
+  console.log(`구직자 ${candidates.length}명: ✅완전 ${cOK.length} / ⚠️불완전 ${cBad.length}`);
+  console.log(`공고 ${activeJobs.length}건(모집중): ✅완전 ${jOK.length} / ⚠️불완전 ${jBad.length}`);
+
+  const cBadNoEmail = cBad.filter((x) => !candEmail(x.c)).length;
+  const jBadNoEmail = jBad.filter((x) => !/.+@.+\..+/.test(jobEmail(x.j))).length;
+  console.log(`\n[보완요청 메일 대상]`);
+  console.log(`  구직자 불완전 ${cBad.length}명 → 발송가능 ${cBad.length - cBadNoEmail} / 이메일없어 불가 ${cBadNoEmail}`);
+  console.log(`  공고  불완전 ${jBad.length}건 → 발송가능 ${jBad.length - jBadNoEmail} / 이메일없어 불가 ${jBadNoEmail}`);
+  console.log(`  불완전 구직자 예시:`);
+  cBad.slice(0, 6).forEach((x) => console.log(`    - ${(x.c.profile || {}).name || "(이름없음)"} → 누락: ${x.m.join(", ")}${candEmail(x.c) ? "" : " [이메일없음]"}`));
+  console.log(`  불완전 공고 예시:`);
+  jBad.slice(0, 6).forEach((x) => console.log(`    - ${x.j.companyName || "(회사명없음)"} / ${x.j.title || "(제목없음)"} → 누락: ${x.m.join(", ")}${/.+@.+\..+/.test(jobEmail(x.j)) ? "" : " [이메일없음]"}`));
+
+  console.log(`\n===== AI 매칭 (완전 공고 ${Math.min(NUM_JOBS, jOK.length)}건 · 완전 구직자 ${cOK.length}명 풀 · 임계 ${THRESHOLD}점) =====`);
+  const matchPool = cOK.map((x) => x.c);
+  for (const { j: job } of jOK.slice(0, NUM_JOBS)) {
     console.log("─".repeat(72));
     console.log(`📋 [${job.companyName || "-"}] ${job.title}`);
     console.log(`   지역:${job.city || "-"}·${job.district || "-"} (권역:${regionOf(job.city) || regionOf(job.district) || "?"}) | 직무:${(job.jobTracks || []).join("/") || "(없음)"}`);
 
-    const { passed, dropped, trackFilter } = prefilter(job, candidates);
-    console.log(`   🔍 하드필터: ${candidates.length} → ${passed.length}명 (직종제외 ${dropped.track}${trackFilter ? "" : "·공고직종없음"}, 빈프로필제외 ${dropped.incomplete}, 비활성제외 ${dropped.status})`);
+    const { passed, dropped, trackFilter } = prefilter(job, matchPool);
+    console.log(`   🔍 하드필터: ${matchPool.length} → ${passed.length}명 (직종제외 ${dropped.track}${trackFilter ? "" : "·공고직종없음"}, 비활성제외 ${dropped.status})`);
     if (passed.length === 0) { console.log("   ⚠️  0명 → 발송 안 함\n"); continue; }
 
     const rankedPre = preRank(job, passed);
