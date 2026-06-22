@@ -64,17 +64,18 @@ export default function MatchingPage() {
     }
   }
 
-  async function openSend() {
+  function openSend() {
     setSendMsg("");
     setSendSel(matches.map(m => m.candidateId));
-    // 공고 회사명 ↔ 등록된 기업(clients)에서 담당자 이메일 자동 조회
-    let email = "";
-    try {
-      const cs = await fetch("/api/clients").then(r => r.json());
-      const name = (selectedJob?.companyName || "").trim();
-      const hit = (cs.clients || []).find(c => (c.companyName || "").trim() === name && c.contactEmail);
-      email = hit?.contactEmail || "";
-    } catch { /* 자동조회 실패 시 수동 입력 */ }
+    // 공고에 등록된 연락 이메일을 자동으로 채움.
+    // 공고마다 필드명이 contactEmail / email 로 제각각이라 순서대로 폴백하고,
+    // 둘 다 없으면 등록자 계정 이메일(userEmail)을 사용. (clients 컬렉션은 비어 있어 사용 안 함)
+    const email = (
+      selectedJob?.contactEmail ||
+      selectedJob?.email ||
+      selectedJob?.userEmail ||
+      ""
+    ).trim();
     setCompanyEmail(email);
     setShowSend(true);
   }
