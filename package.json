@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "firebase-admin": "^13.7.0",
+    "imapflow": "^1.4.2",
     "next": "16.2.1",
     "nodemailer": "^9.0.0",
     "openai": "^6.32.0",
