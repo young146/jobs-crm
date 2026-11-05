@@ -1,6 +1,7 @@
 import admin from "firebase-admin";
 import { getDb } from "@/lib/firebase-admin";
 import { sendEmail } from "@/lib/email";
+import { recommendAllowed } from "@/lib/matching";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 // AI 매칭 결과를 기업 담당자 이메일로 전송. 연락처 포함(직접 연결). 발송이력 기록.
 export async function POST(request) {
   try {
-    const { jobId, companyEmail, companyName, matches } = await request.json();
+    const { jobId, companyEmail, companyName, matches: requested } = await request.json();
+    let matches = requested;
 
     if (!jobId) return NextResponse.json({ ok: false, error: "jobId 누락" }, { status: 400 });
     if (!companyEmail || !/.+@.+\..+/.test(companyEmail))
@@ -28,6 +30,11 @@ export async function POST(request) {
     const candDocs = await Promise.all(ids.map((id) => db.collection("candidates").doc(id).get()));
     const candById = {};
     candDocs.forEach((d) => { if (d.exists) candById[d.id] = d.data(); });
+
+    // 추천에 동의하지 않은 구직자는 손으로 보낼 때도 뺀다 (2026-11-05)
+    matches = matches.filter((m) => recommendAllowed(candById[m.candidateId]));
+    if (matches.length === 0)
+      return NextResponse.json({ ok: false, error: "추천에 동의한 인재가 없습니다." }, { status: 400 });
 
     const enriched = matches.map((m) => {
       const c = candById[m.candidateId] || {};
@@ -56,7 +63,7 @@ export async function POST(request) {
       jobTitle: job.title || "",
       companyName: companyName || job.companyName || "",
       companyEmail,
-      candidateIds: ids,
+      candidateIds: matches.map((m) => m.candidateId).filter(Boolean),
       candidateCount: enriched.length,
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
       status: "sent",
