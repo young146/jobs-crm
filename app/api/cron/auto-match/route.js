@@ -2,6 +2,7 @@ import { getDb } from "@/lib/firebase-admin";
 import { getOpenAI } from "@/lib/openai";
 import { sendEmail } from "@/lib/email";
 import { runAutoMatch } from "@/lib/auto-match";
+import { loadRefused } from "@/lib/mail-optout";
 import { jobIncompleteEmail, candidateIncompleteEmail, matchResultEmail } from "@/lib/email-templates";
 import admin from "firebase-admin";
 import { NextResponse } from "next/server";
@@ -33,6 +34,8 @@ export async function GET(request) {
         db,
         openai: getOpenAI(),
         send: (to, subject, html) => sendEmail({ to, subject, html }),
+        // 🙅 답장으로 「보내지 마세요」 하신 주소는 메일을 건너뛴다 (2026-11-16, lib/mail-optout.js)
+        isRefused: await loadRefused(db),
         serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
         templates: { jobIncompleteEmail, candidateIncompleteEmail, matchResultEmail },
         // 모든 발송을 emailLog에 기록 (관제 대시보드용). 응답상태 기본 '대기'

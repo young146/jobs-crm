@@ -2,6 +2,7 @@ import admin from "firebase-admin";
 import { getDb } from "@/lib/firebase-admin";
 import { sendEmail } from "@/lib/email";
 import { recommendAllowed } from "@/lib/matching";
+import { loadRefused } from "@/lib/mail-optout";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,9 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, error: "보낼 인재가 없습니다." }, { status: 400 });
 
     const db = getDb();
+    // 🙅 답장으로 「보내지 마세요」 하신 주소면 손으로 보낼 때도 막는다 (2026-11-16, lib/mail-optout.js)
+    if ((await loadRefused(db))(companyEmail))
+      return NextResponse.json({ ok: false, error: "이 주소는 「메일을 보내지 말라」고 답하신 곳입니다. 보내지 않았습니다." }, { status: 400 });
     const jobDoc = await db.collection("Jobs").doc(jobId).get();
     if (!jobDoc.exists) return NextResponse.json({ ok: false, error: "채용공고 없음" }, { status: 404 });
     const job = jobDoc.data();
